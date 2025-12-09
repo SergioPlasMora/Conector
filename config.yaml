@@ -25,6 +25,10 @@ datasets:
 simulation:
   processing_delay_ms: 0
 
+# Streaming (Patrón B)
+streaming:
+  chunk_size_kb: 1024 # Tamaño del chunk en KB (default: 1MB)
+
 # Logging
 logging:
   level: "INFO"

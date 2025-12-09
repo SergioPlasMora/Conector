@@ -197,7 +197,7 @@ class APIClient:
     # Patrón B: Streaming
     # =========================================================================
     
-    def stream_init(self, request_id: str, mac_address: str, dataset_name: str, total_size: int = None) -> bool:
+    def stream_init(self, request_id: str, mac_address: str, dataset_name: str, total_size: int = None, t2_received: float = None) -> bool:
         """Inicializa un stream para el Patrón B."""
         url = f"{self.base_url}/datasets/stream/init/{request_id}"
         try:
@@ -205,7 +205,8 @@ class APIClient:
                 "request_id": request_id,
                 "mac_address": mac_address,
                 "dataset_name": dataset_name,
-                "total_size": total_size
+                "total_size": total_size,
+                "t2_received": t2_received
             }, timeout=self.timeout)
             return response.status_code == 200
         except requests.RequestException as e:
@@ -227,7 +228,7 @@ class APIClient:
             self.logger.error(f"Error enviando chunk: {e}")
             return False
     
-    def stream_complete(self, request_id: str, total_chunks: int, total_bytes: int, status: str = "success") -> bool:
+    def stream_complete(self, request_id: str, total_chunks: int, total_bytes: int, status: str = "success", t3_start_send: float = None) -> bool:
         """Señala que el stream está completo."""
         url = f"{self.base_url}/datasets/stream/complete"
         try:
@@ -235,7 +236,8 @@ class APIClient:
                 "request_id": request_id,
                 "total_chunks": total_chunks,
                 "total_bytes": total_bytes,
-                "status": status
+                "status": status,
+                "t3_start_send": t3_start_send
             }, timeout=self.timeout)
             return response.status_code == 200
         except requests.RequestException as e:
@@ -415,9 +417,10 @@ class ConectorService(win32serviceutil.ServiceFramework):
         request_id = command.get("request_id")
         mac_address = command.get("mac_address")
         dataset_name = command.get("dataset_name")
-        chunk_size = command.get("chunk_size", 65536)  # 64KB default
+        # Usar configuración de chunk_size (KB -> bytes)
+        chunk_size = self.config.streaming.chunk_size_kb * 1024
         
-        self.logger.info(f"[Patrón B] Streaming DataSet: {dataset_name}", extra={
+        self.logger.info(f"[Patrón B] Streaming DataSet: {dataset_name} (chunk_size: {chunk_size // 1024}KB)", extra={
             "request_id": request_id
         })
         
@@ -433,8 +436,11 @@ class ConectorService(win32serviceutil.ServiceFramework):
         try:
             file_size = file_path.stat().st_size
             
-            # 1. Inicializar stream
-            if not self.api_client.stream_init(request_id, mac_address, dataset_name, file_size):
+            # t3: Inicio de envío
+            t3_start_send = time.time_ns() / 1e9
+            
+            # 1. Inicializar stream (enviar t2 = cuando recibimos el comando)
+            if not self.api_client.stream_init(request_id, mac_address, dataset_name, file_size, t2_received=t2_received):
                 self.logger.error(f"[Patrón B] Error iniciando stream")
                 return
             
@@ -465,8 +471,8 @@ class ConectorService(win32serviceutil.ServiceFramework):
                     chunk_index += 1
                     total_bytes += len(chunk_data)
             
-            # 3. Señalar finalización
-            self.api_client.stream_complete(request_id, chunk_index, total_bytes, status="success")
+            # 3. Señalar finalización (enviar t3)
+            self.api_client.stream_complete(request_id, chunk_index, total_bytes, status="success", t3_start_send=t3_start_send)
             
             self.logger.info(
                 f"[Patrón B] Stream completado: {chunk_index} chunks, {total_bytes} bytes",
@@ -799,9 +805,11 @@ def test_mode():
             from pathlib import Path
             
             dataset_name = command.get("dataset_name")
-            chunk_size = command.get("chunk_size", 65536)
+            t2_received = time.time_ns() / 1e9  # t2: Conector recibe
+            # Usar configuración de chunk_size (KB -> bytes)
+            chunk_size = config.streaming.chunk_size_kb * 1024
             
-            logger.info(f"[Patrón B] Streaming DataSet: {dataset_name}")
+            logger.info(f"[Patrón B] Streaming DataSet: {dataset_name} (chunk_size: {chunk_size // 1024}KB)")
             
             file_path = Path(config.datasets.path) / dataset_name
             
@@ -813,8 +821,11 @@ def test_mode():
             try:
                 file_size = file_path.stat().st_size
                 
-                # 1. Inicializar stream
-                if not api_client.stream_init(request_id, mac_address, dataset_name, file_size):
+                # t3: Inicio de envío
+                t3_start_send = time.time_ns() / 1e9
+                
+                # 1. Inicializar stream (enviar t2)
+                if not api_client.stream_init(request_id, mac_address, dataset_name, file_size, t2_received=t2_received):
                     logger.error("[Patrón B] Error iniciando stream")
                     return
                 
@@ -842,7 +853,8 @@ def test_mode():
                         chunk_index += 1
                         total_bytes += len(chunk_data)
                 
-                api_client.stream_complete(request_id, chunk_index, total_bytes, status="success")
+                # 3. Señalar finalización (enviar t3)
+                api_client.stream_complete(request_id, chunk_index, total_bytes, status="success", t3_start_send=t3_start_send)
                 logger.info(f"[Patrón B] Stream completado: {chunk_index} chunks, {total_bytes} bytes")
                 
             except Exception as e:
@@ -856,6 +868,7 @@ def test_mode():
             
             dataset_name = command.get("dataset_name")
             t1_received = command.get("t1_received", 0)
+            t2_received = time.time_ns() / 1e9  # t2: Conector recibe
             
             logger.info(f"[Patrón C] Subiendo DataSet a MinIO: {dataset_name}")
             

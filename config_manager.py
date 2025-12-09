@@ -44,6 +44,12 @@ class SimulationConfig:
 
 
 @dataclass
+class StreamingConfig:
+    """Configuración de streaming (Patrón B)."""
+    chunk_size_kb: int = 1024  # 1MB por defecto
+
+
+@dataclass
 class LoggingConfig:
     """Configuración de logging."""
     level: str = "INFO"
@@ -77,6 +83,7 @@ class Config:
     retry: RetryConfig = field(default_factory=RetryConfig)
     datasets: DatasetsConfig = field(default_factory=DatasetsConfig)
     simulation: SimulationConfig = field(default_factory=SimulationConfig)
+    streaming: StreamingConfig = field(default_factory=StreamingConfig)
     logging: LoggingConfig = field(default_factory=LoggingConfig)
     tracing: TracingConfig = field(default_factory=TracingConfig)
     storage: StorageConfig = field(default_factory=StorageConfig)
@@ -173,6 +180,13 @@ class ConfigManager:
             sim = data['simulation']
             config.simulation = SimulationConfig(
                 processing_delay_ms=int(sim.get('processing_delay_ms', config.simulation.processing_delay_ms))
+            )
+        
+        # Streaming
+        if 'streaming' in data:
+            st = data['streaming']
+            config.streaming = StreamingConfig(
+                chunk_size_kb=int(st.get('chunk_size_kb', config.streaming.chunk_size_kb))
             )
         
         # Logging
