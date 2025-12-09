@@ -58,6 +58,18 @@ class TracingConfig:
 
 
 @dataclass
+class StorageConfig:
+    """Configuración de almacenamiento MinIO (Patrón C)."""
+    enabled: bool = False
+    endpoint: str = "localhost:9000"
+    access_key: str = "minioadmin"
+    secret_key: str = "minioadmin123"
+    bucket: str = "datasets"
+    secure: bool = False
+    url_expiry_hours: int = 1
+
+
+@dataclass
 class Config:
     """Configuración completa del Conector."""
     enrutador: EnrutadorConfig = field(default_factory=EnrutadorConfig)
@@ -67,6 +79,7 @@ class Config:
     simulation: SimulationConfig = field(default_factory=SimulationConfig)
     logging: LoggingConfig = field(default_factory=LoggingConfig)
     tracing: TracingConfig = field(default_factory=TracingConfig)
+    storage: StorageConfig = field(default_factory=StorageConfig)
 
 
 class ConfigManager:
@@ -176,6 +189,19 @@ class ConfigManager:
             tr = data['tracing']
             config.tracing = TracingConfig(
                 enabled=bool(tr.get('enabled', config.tracing.enabled))
+            )
+        
+        # Storage (MinIO)
+        if 'storage' in data:
+            st = data['storage']
+            config.storage = StorageConfig(
+                enabled=bool(st.get('enabled', config.storage.enabled)),
+                endpoint=st.get('endpoint', config.storage.endpoint),
+                access_key=st.get('access_key', config.storage.access_key),
+                secret_key=st.get('secret_key', config.storage.secret_key),
+                bucket=st.get('bucket', config.storage.bucket),
+                secure=bool(st.get('secure', config.storage.secure)),
+                url_expiry_hours=int(st.get('url_expiry_hours', config.storage.url_expiry_hours))
             )
         
         return config

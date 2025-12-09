@@ -192,6 +192,55 @@ class APIClient:
         except requests.RequestException as e:
             self.logger.error(f"Error enviando resultado: {e}")
             return False
+    
+    # =========================================================================
+    # Patrón B: Streaming
+    # =========================================================================
+    
+    def stream_init(self, request_id: str, mac_address: str, dataset_name: str, total_size: int = None) -> bool:
+        """Inicializa un stream para el Patrón B."""
+        url = f"{self.base_url}/datasets/stream/init/{request_id}"
+        try:
+            response = self.session.post(url, json={
+                "request_id": request_id,
+                "mac_address": mac_address,
+                "dataset_name": dataset_name,
+                "total_size": total_size
+            }, timeout=self.timeout)
+            return response.status_code == 200
+        except requests.RequestException as e:
+            self.logger.error(f"Error iniciando stream: {e}")
+            return False
+    
+    def stream_chunk(self, request_id: str, chunk_index: int, data: str, is_last: bool = False) -> bool:
+        """Envía un chunk de datos al Enrutador."""
+        url = f"{self.base_url}/datasets/stream/chunk"
+        try:
+            response = self.session.post(url, json={
+                "request_id": request_id,
+                "chunk_index": chunk_index,
+                "data": data,
+                "is_last": is_last
+            }, timeout=self.timeout)
+            return response.status_code == 200
+        except requests.RequestException as e:
+            self.logger.error(f"Error enviando chunk: {e}")
+            return False
+    
+    def stream_complete(self, request_id: str, total_chunks: int, total_bytes: int, status: str = "success") -> bool:
+        """Señala que el stream está completo."""
+        url = f"{self.base_url}/datasets/stream/complete"
+        try:
+            response = self.session.post(url, json={
+                "request_id": request_id,
+                "total_chunks": total_chunks,
+                "total_bytes": total_bytes,
+                "status": status
+            }, timeout=self.timeout)
+            return response.status_code == 200
+        except requests.RequestException as e:
+            self.logger.error(f"Error completando stream: {e}")
+            return False
 
 
 class ConectorService(win32serviceutil.ServiceFramework):
@@ -275,7 +324,7 @@ class ConectorService(win32serviceutil.ServiceFramework):
     def execute_command(self, command: dict):
         """
         Ejecuta comandos recibidos del Enrutador.
-        Soporta: get_dataset (nuevo) y run_sql_query (legacy).
+        Soporta: get_dataset, get_dataset_stream (Patrón B), run_sql_query (legacy).
         """
         try:
             command_type = command.get("command")
@@ -292,8 +341,10 @@ class ConectorService(win32serviceutil.ServiceFramework):
 
             if command_type == "get_dataset":
                 self._handle_get_dataset(command, t2_received)
-            elif command_type == "run_sql_query":
-                self._handle_sql_query(command)
+            elif command_type == "get_dataset_stream":
+                self._handle_get_dataset_stream(command, t2_received)
+            elif command_type == "get_dataset_offload":
+                self._handle_get_dataset_offload(command, t2_received)
             else:
                 self.logger.warning(f"Comando no soportado: {repr(command_type)}")
 
@@ -353,65 +404,168 @@ class ConectorService(win32serviceutil.ServiceFramework):
                 "request_id": request_id
             })
     
-    def _handle_sql_query(self, command: dict):
-        """Maneja el comando run_sql_query (legacy)."""
-        command_id = command.get("command_id")
-        mac_address = command.get("mac_address")
+    def _handle_get_dataset_stream(self, command: dict, t2_received: float):
+        """
+        Patrón B: Maneja el comando get_dataset_stream para envío chunked.
+        Envía el DataSet en múltiples chunks en lugar de un solo payload.
+        """
+        import base64
+        from pathlib import Path
         
-        self.logger.info(f"Comando SQL (legacy) recibido: {command_id}")
+        request_id = command.get("request_id")
+        mac_address = command.get("mac_address")
+        dataset_name = command.get("dataset_name")
+        chunk_size = command.get("chunk_size", 65536)  # 64KB default
+        
+        self.logger.info(f"[Patrón B] Streaming DataSet: {dataset_name}", extra={
+            "request_id": request_id
+        })
+        
+        # Obtener path al archivo
+        file_path = Path(self.config.datasets.path) / dataset_name
+        
+        if not file_path.exists():
+            self.logger.error(f"[Patrón B] DataSet no encontrado: {dataset_name}")
+            # Notificar error
+            self.api_client.stream_complete(request_id, 0, 0, status="error")
+            return
         
         try:
-            response = requests.get(
-                f"{self.config.enrutador.base_url}/consultas/commands/{command_id}",
-                timeout=self.config.enrutador.api_timeout
+            file_size = file_path.stat().st_size
+            
+            # 1. Inicializar stream
+            if not self.api_client.stream_init(request_id, mac_address, dataset_name, file_size):
+                self.logger.error(f"[Patrón B] Error iniciando stream")
+                return
+            
+            # 2. Enviar archivo en chunks
+            chunk_index = 0
+            total_bytes = 0
+            
+            with open(file_path, 'rb') as f:
+                while True:
+                    chunk_data = f.read(chunk_size)
+                    if not chunk_data:
+                        break
+                    
+                    # Codificar en base64 para transmisión JSON
+                    chunk_b64 = base64.b64encode(chunk_data).decode('ascii')
+                    
+                    # Verificar si es el último chunk
+                    next_byte = f.read(1)
+                    is_last = len(next_byte) == 0
+                    if next_byte:
+                        f.seek(-1, 1)
+                    
+                    # Enviar chunk
+                    if not self.api_client.stream_chunk(request_id, chunk_index, chunk_b64, is_last):
+                        self.logger.error(f"[Patrón B] Error enviando chunk {chunk_index}")
+                        break
+                    
+                    chunk_index += 1
+                    total_bytes += len(chunk_data)
+            
+            # 3. Señalar finalización
+            self.api_client.stream_complete(request_id, chunk_index, total_bytes, status="success")
+            
+            self.logger.info(
+                f"[Patrón B] Stream completado: {chunk_index} chunks, {total_bytes} bytes",
+                extra={"request_id": request_id}
             )
-            if response.status_code != 200:
-                self.logger.error(f"Error al obtener SQL del comando ID {command_id}")
+            
+        except Exception as e:
+            self.logger.error(f"[Patrón B] Error en streaming: {e}")
+            self.api_client.stream_complete(request_id, 0, 0, status="error")
+    
+    def _handle_get_dataset_offload(self, command: dict, t2_received: float):
+        """
+        Patrón C: Sube el DataSet a MinIO y envía URL de descarga al Enrutador.
+        """
+        from pathlib import Path
+        from storage_client import StorageClient, MINIO_AVAILABLE
+        
+        request_id = command.get("request_id")
+        mac_address = command.get("mac_address")
+        dataset_name = command.get("dataset_name")
+        t1_received = command.get("t1_received", 0)
+        
+        self.logger.info(f"[Patrón C] Subiendo DataSet a MinIO: {dataset_name}", extra={
+            "request_id": request_id
+        })
+        
+        if not MINIO_AVAILABLE:
+            self.logger.error("[Patrón C] minio package no instalado")
+            self._send_offload_error(request_id, mac_address, "minio package not installed")
+            return
+        
+        if not self.config.storage.enabled:
+            self.logger.error("[Patrón C] Storage no habilitado en config.yaml")
+            self._send_offload_error(request_id, mac_address, "Storage not enabled in config")
+            return
+        
+        file_path = Path(self.config.datasets.path) / dataset_name
+        
+        if not file_path.exists():
+            self.logger.error(f"[Patrón C] DataSet no encontrado: {dataset_name}")
+            self._send_offload_error(request_id, mac_address, f"Dataset not found: {dataset_name}")
+            return
+        
+        try:
+            # Crear cliente MinIO
+            storage = StorageClient(
+                endpoint=self.config.storage.endpoint,
+                access_key=self.config.storage.access_key,
+                secret_key=self.config.storage.secret_key,
+                bucket=self.config.storage.bucket,
+                secure=self.config.storage.secure,
+                url_expiry_hours=self.config.storage.url_expiry_hours
+            )
+            
+            # Timestamp t3: Inicio de upload
+            t3_start_send = time.time_ns() / 1e9
+            
+            # Subir archivo
+            result = storage.upload_file(request_id, str(file_path), mac_address)
+            
+            if not result.success:
+                self._send_offload_error(request_id, mac_address, result.error_message)
                 return
-
-            command_data = response.json()
-            sql_query = command_data.get("sql_query")
-
-            if not sql_query:
-                self.logger.error(f"El comando ID {command_id} no tiene consulta SQL asociada.")
-                return
-
-            self.logger.info(f"Ejecutando SQL:\n{sql_query}")
-
-            from database import execute_query
-
-            try:
-                result_list = execute_query(sql_query)
-                if result_list is None:
-                    raise Exception("Consulta fallida o sin resultados.")
-
-                output = str(result_list)
-                status = "success"
-                self.logger.info(f"Consulta ejecutada con éxito: {output}")
-            except Exception as db_error:
-                output = str(db_error)
-                status = "error"
-                self.logger.error(f"Error al ejecutar SQL: {output}")
-
+            
+            # Enviar URL al Enrutador
             result_payload = {
-                "query_id": command_id,
+                "request_id": request_id,
                 "mac_address": mac_address,
-                "output": output,
-                "status": status,
+                "status": "success",
+                "download_url": result.download_url,
+                "data_size_bytes": result.size_bytes,
+                "timestamps": {
+                    "t1_received": t1_received,
+                    "t2_received": t2_received,
+                    "t3_start_send": t3_start_send
+                }
             }
-
-            response = requests.post(
-                f"{self.config.enrutador.base_url}/consultas/consultas/results/",
-                json=result_payload,
-                timeout=self.config.enrutador.api_timeout
-            )
-            if response.status_code == 201:
-                self.logger.info("Resultado SQL enviado correctamente al backend.")
+            
+            if self.api_client.send_dataset_result(result_payload):
+                self.logger.info(
+                    f"[Patrón C] URL enviada: {result.size_bytes} bytes",
+                    extra={"request_id": request_id}
+                )
             else:
-                self.logger.warning(f"No se pudo enviar resultado SQL. Código: {response.status_code}")
-
-        except requests.RequestException as e:
-            self.logger.error(f"Error al obtener la consulta SQL del comando ID {command_id}: {e}")
+                self.logger.error("[Patrón C] Error enviando resultado")
+                
+        except Exception as e:
+            self.logger.error(f"[Patrón C] Error: {e}")
+            self._send_offload_error(request_id, mac_address, str(e))
+    
+    def _send_offload_error(self, request_id: str, mac_address: str, error_message: str):
+        """Envía error de offload al Enrutador."""
+        result_payload = {
+            "request_id": request_id,
+            "mac_address": mac_address,
+            "status": "error",
+            "error_message": error_message
+        }
+        self.api_client.send_dataset_result(result_payload)
 
     def handle_sse_connection(self, sse_url: str, mac_address: str) -> bool:
         """Maneja la conexión SSE con el Enrutador."""
@@ -638,6 +792,125 @@ def test_mode():
                 logger.info(f"Resultado enviado: {result.size_bytes} bytes, success={result.success}")
             else:
                 logger.error("Error enviando resultado")
+        
+        elif command_type == "get_dataset_stream":
+            # Patrón B: Streaming
+            import base64
+            from pathlib import Path
+            
+            dataset_name = command.get("dataset_name")
+            chunk_size = command.get("chunk_size", 65536)
+            
+            logger.info(f"[Patrón B] Streaming DataSet: {dataset_name}")
+            
+            file_path = Path(config.datasets.path) / dataset_name
+            
+            if not file_path.exists():
+                logger.error(f"[Patrón B] DataSet no encontrado: {dataset_name}")
+                api_client.stream_complete(request_id, 0, 0, status="error")
+                return
+            
+            try:
+                file_size = file_path.stat().st_size
+                
+                # 1. Inicializar stream
+                if not api_client.stream_init(request_id, mac_address, dataset_name, file_size):
+                    logger.error("[Patrón B] Error iniciando stream")
+                    return
+                
+                # 2. Enviar archivo en chunks
+                chunk_index = 0
+                total_bytes = 0
+                
+                with open(file_path, 'rb') as f:
+                    while True:
+                        chunk_data = f.read(chunk_size)
+                        if not chunk_data:
+                            break
+                        
+                        chunk_b64 = base64.b64encode(chunk_data).decode('ascii')
+                        
+                        next_byte = f.read(1)
+                        is_last = len(next_byte) == 0
+                        if next_byte:
+                            f.seek(-1, 1)
+                        
+                        if not api_client.stream_chunk(request_id, chunk_index, chunk_b64, is_last):
+                            logger.error(f"[Patrón B] Error enviando chunk {chunk_index}")
+                            break
+                        
+                        chunk_index += 1
+                        total_bytes += len(chunk_data)
+                
+                api_client.stream_complete(request_id, chunk_index, total_bytes, status="success")
+                logger.info(f"[Patrón B] Stream completado: {chunk_index} chunks, {total_bytes} bytes")
+                
+            except Exception as e:
+                logger.error(f"[Patrón B] Error en streaming: {e}")
+                api_client.stream_complete(request_id, 0, 0, status="error")
+        
+        elif command_type == "get_dataset_offload":
+            # Patrón C: Offloading a MinIO
+            from pathlib import Path
+            from storage_client import StorageClient, MINIO_AVAILABLE
+            
+            dataset_name = command.get("dataset_name")
+            t1_received = command.get("t1_received", 0)
+            
+            logger.info(f"[Patrón C] Subiendo DataSet a MinIO: {dataset_name}")
+            
+            if not MINIO_AVAILABLE:
+                logger.error("[Patrón C] minio package no instalado")
+                return
+            
+            if not config.storage.enabled:
+                logger.error("[Patrón C] Storage no habilitado en config.yaml")
+                return
+            
+            file_path = Path(config.datasets.path) / dataset_name
+            
+            if not file_path.exists():
+                logger.error(f"[Patrón C] DataSet no encontrado: {dataset_name}")
+                return
+            
+            try:
+                storage = StorageClient(
+                    endpoint=config.storage.endpoint,
+                    access_key=config.storage.access_key,
+                    secret_key=config.storage.secret_key,
+                    bucket=config.storage.bucket,
+                    secure=config.storage.secure,
+                    url_expiry_hours=config.storage.url_expiry_hours
+                )
+                
+                t3_start_send = time.time_ns() / 1e9
+                result = storage.upload_file(request_id, str(file_path), mac_address)
+                
+                if not result.success:
+                    logger.error(f"[Patrón C] Error subiendo: {result.error_message}")
+                    return
+                
+                result_payload = {
+                    "request_id": request_id,
+                    "mac_address": mac_address,
+                    "status": "success",
+                    "download_url": result.download_url,
+                    "data_size_bytes": result.size_bytes,
+                    "timestamps": {
+                        "t1_received": t1_received,
+                        "t2_received": t2_received,
+                        "t3_start_send": t3_start_send
+                    }
+                }
+                
+                if api_client.send_dataset_result(result_payload):
+                    logger.info(f"[Patrón C] URL enviada: {result.size_bytes} bytes")
+                else:
+                    logger.error("[Patrón C] Error enviando resultado")
+                    
+            except Exception as e:
+                logger.error(f"[Patrón C] Error: {e}")
+        
         else:
             logger.warning(f"Comando no soportado: {command_type}")
     

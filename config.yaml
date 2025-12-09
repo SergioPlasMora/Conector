@@ -34,3 +34,13 @@ logging:
 # Trazabilidad
 tracing:
   enabled: true
+
+# Almacenamiento MinIO (Patrón C)
+storage:
+  enabled: true # Cambiar a true para habilitar Patrón C
+  endpoint: "localhost:9000"
+  access_key: "minioadmin"
+  secret_key: "minioadmin123"
+  bucket: "datasets"
+  secure: false
+  url_expiry_hours: 1
