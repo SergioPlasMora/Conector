@@ -1,6 +1,23 @@
-pywin32==311
-sseclient-py==1.8.0
-requests==2.32.3
-pymssql==2.3.10
-python-dotenv==1.1.0
-psutil==7.0.0
+# Windows Service
+pywin32>=311
+
+# SSE Client
+sseclient-py>=1.8.0
+
+# HTTP Client
+requests>=2.31.0
+
+# System utilities
+psutil>=5.9.0
+
+# Configuration
+PyYAML>=6.0
+
+# Database (legacy SQL support)
+pymssql>=2.3.0
+
+# Environment variables
+python-dotenv>=1.0.0
+
+# CSV generation
+csvkit>=1.12.0

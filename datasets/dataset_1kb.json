@@ -1,0 +1,11 @@
+{
+    "id": 1,
+    "name": "Test DataSet",
+    "description": "Archivo de prueba pequeño para validar latencia mínima",
+    "created_at": "2025-12-09T12:00:00Z",
+    "records": [
+        {"field1": "value1", "field2": 100},
+        {"field1": "value2", "field2": 200},
+        {"field1": "value3", "field2": 300}
+    ]
+}

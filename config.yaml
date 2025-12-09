@@ -1,0 +1,36 @@
+# Configuración del Conector
+# ==========================
+
+# Conexión al Enrutador
+enrutador:
+  base_url: "http://localhost:8000"
+  sse_timeout: 30
+  api_timeout: 5
+
+# Heartbeat/Ping
+heartbeat:
+  interval_seconds: 60
+
+# Reconexión automática
+retry:
+  max_attempts: 10
+  base_delay_seconds: 2
+  max_delay_seconds: 10
+
+# Carpeta con DataSets pre-generados
+datasets:
+  path: "./datasets"
+
+# Simulación de latencia (para emular queries SQL complejas)
+simulation:
+  processing_delay_ms: 0
+
+# Logging
+logging:
+  level: "INFO"
+  format: "json" # "json" o "text"
+  file_path: "C:\\Temp\\Conector_poc.log"
+
+# Trazabilidad
+tracing:
+  enabled: true

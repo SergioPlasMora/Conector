@@ -1,184 +1,125 @@
-# 🏗️ Arquitectura Gateway-API Communication System (PoC)
+# **Especificación del Sistema de Comunicación de Datos Distribuidos**
 
-## Índice
-1. [Visión General](#visión-general)
-2. [Modelo de Comunicación](#modelo-de-comunicación)
-3. [Infraestructura del Servidor](#infraestructura-del-servidor)
-4. [Estrategias de Optimización](#estrategias-de-optimización)
-5. [Transferencia de Archivos](#transferencia-de-archivos)
-6. [Garantías de Entrega](#garantías-de-entrega)
-7. [Roadmap](#roadmap)
+**Proyecto:** SaaS de Analítica Descentralizada
 
----
+**Versión:** 1.5 (Corrección: Datos Estáticos)
 
-## Visión General
+**Fecha:** 08 de Diciembre, 2025
 
-### Objetivo
-Sistema de comunicación bidireccional entre API centralizada y Gateways distribuidos para:
-- Ejecutar consultas SQL en bases de datos remotas
-- Transferir resultados en tiempo real
-- Transferir archivos Parquet de gran tamaño (hasta 100+ MB)
+## **1\. Contexto del Proyecto**
 
-### Requisitos
+El objetivo es desarrollar la infraestructura de comunicación para una plataforma **SaaS de Analítica**. A diferencia de los modelos tradicionales donde los datos se centralizan en la nube, esta plataforma opera bajo un modelo descentralizado: **los datos residen en la infraestructura del cliente (On-Premise)**.
 
-| Aspecto | Requisito |
-|---------|-----------|
-| **Latencia** | < 3 segundos (100MB) |
-| **Concurrencia** | 1,000+ gateways |
-| **Garantía entrega** | At-least-once |
-| **Seguridad** | Sin puertos abiertos en clientes |
+Los DataSets (conjuntos de datos) deben ser extraídos bajo demanda desde los nodos locales y entregados a las interfaces de consumo (Aplicaciones Web SPA, Apps Móviles, o integraciones API) para su visualización y análisis en tiempo real.
 
----
+### **Reto Principal**
 
-## Modelo de Comunicación
+Lograr una transferencia de datos segura, eficiente y transparente entre redes privadas (Nodos) y consumidores públicos (Aplicaciones), sin exponer puertos en la infraestructura del cliente y adaptándose a volúmenes de datos variables (desde 1KB hasta 100MB+).
 
-### Arquitectura: SSE + POST
+## **2\. Definición de Componentes de Software**
 
-```
-[API] ──SSE──> [Gateway]     (Comandos)
-[Gateway] ──POST──> [API]    (Resultados)
-```
+Todos los componentes se desarrollarán utilizando el ecosistema **Python**.
 
-> [!IMPORTANT]
-> Los Gateways solo hacen conexiones salientes. No hay puertos abiertos en máquinas cliente.
+| Componente | Tipo | Implementación | Descripción Funcional |
+| :---- | :---- | :---- | :---- |
+| **1\. Nodo** | Hardware | N/A | Dispositivo físico (computadora/servidor) ubicado *on-premise* en la red del cliente. Tiene conexión de salida a Internet, pero no puertos de entrada abiertos. |
+| **2\. Conector** | Software | **Python (CLI App)** | Aplicación de línea de comandos que se ejecuta en el Nodo. Inicia y mantiene el canal con el Enrutador. Debe ser capaz de recibir múltiples solicitudes concurrentes. |
+| **3\. Enrutador** | Software | **Python (FastAPI)** | Aplicación central asíncrona. Orquesta el tráfico, verifica estados y enruta flujos de datos entre la Aplicación y el Conector. |
+| **4\. Servidor** | Hardware | N/A | Infraestructura Cloud que aloja y ejecuta al **Enrutador**. |
+| **5\. Aplicación** | Software | **Python (CLI App)** | El componente consumidor (simulando una SPA o App Móvil) que consume la API del Enrutador para solicitar DataSets. |
+| **6\. DataSet** | Datos | Binario/Texto | El conjunto de información objeto de la transferencia. |
 
----
+## **3\. Principios de Implementación de Prototipos**
 
-## Infraestructura del Servidor
+Para la fase de "Laboratorio de Arquitectura", el desarrollo se regirá por los siguientes principios estrictos:
 
-### Servidor (Canadá)
+### **3.1. Desarrollo Minimalista (KISS)**
 
-| Componente | Capacidad |
-|------------|-----------|
-| **CPU** | 6 vCores |
-| **RAM** | 12.2 GB |
-| **Storage** | 100 GB SSD |
-| **Latencia** | 81ms |
+* **Código Esencial:** Se debe programar **únicamente** lo necesario para validar el patrón de diseño específico bajo prueba.  
+* **Cero Autenticación:** Para esta fase de pruebas, **no se implementará ningún mecanismo de autenticación ni autorización**. El sistema será totalmente abierto: cualquier instancia de la **Aplicación** podrá solicitar datos a cualquier **Nodo** conectado sin restricciones de seguridad ni tokens.  
+* **Sin "Gold Plating":** Evitar validaciones de negocio complejas o interfaces gráficas. El foco es puramente la mecánica de transporte de datos.
 
-### Distribución de Recursos
+### **3.2. Observabilidad y Métricas (Built-in)**
 
-| Componente | RAM | CPU |
-|------------|-----|-----|
-| FastAPI (4 workers) | 2-3 GB | 2 cores |
-| Redis | 500 MB | 0.5 core |
-| MinIO | 500 MB | 0.5 core |
-| Reserva | 2 GB | 1 core |
+Cada componente debe incluir instrumentación nativa para medir el desempeño sin necesidad de herramientas externas complejas:
 
-### TCP Tuning
+* **Traceability IDs:** Cada solicitud generada por la Aplicación debe incluir un request\_id único que se propague por el Enrutador y el Conector, y regrese en la respuesta.  
+* **Timestamps:** Registrar tiempos de alta precisión (nanosegundos) en puntos clave:  
+  * t0: Aplicación envía solicitud.  
+  * t1: Enrutador recibe solicitud.  
+  * t2: Conector recibe solicitud.  
+  * t3: Conector inicia envío de datos.  
+  * t4: Aplicación termina de recibir datos.  
+* **Logs Estructurados:** Salida de logs en formato parseable (JSON/CSV) para facilitar el análisis posterior.
 
-```bash
-# /etc/sysctl.conf
-net.ipv4.tcp_rmem = 4096 87380 16777216
-net.ipv4.tcp_wmem = 4096 65536 16777216
-net.core.rmem_max = 16777216
-net.core.wmem_max = 16777216
-```
+### **3.3. Configuración Dinámica**
 
----
+Cada componente (Aplicación, Enrutador, Conector) debe leer un archivo de configuración (ej. config.yaml o .env) al iniciar para modificar su comportamiento sin cambiar código:
 
-## Estrategias de Optimización
+* Timeouts y reintentos.  
+* Tamaños de buffer (chunk sizes).  
+* Simulación de latencia artificial.  
+* Parámetros de conexión.
 
-### 1. Streaming de Resultados
+## **4\. Estrategia de Simulación y Carga**
 
-```python
-# ✅ Correcto - Solo 64KB en RAM
-async for chunk in request.stream():
-    await save_chunk_to_disk(chunk)
-```
+Para validar la arquitectura sin depender de datos reales o infraestructura de producción, se implementarán mecanismos de emulación:
 
-### 2. Object Storage (MinIO)
+### **4.1. Emulación en el Conector**
 
-```
-[Gateway] ──multipart──> [MinIO] ──URL──> [Cliente]
-```
+El Conector no consultará bases de datos reales ni generará datos sintéticos al vuelo.
 
-| Config | Valor |
-|--------|-------|
-| Retención | 1 hora |
-| Chunk size | 5 MB |
+* **Lectura de Datos Estáticos:** El Conector **utilizará únicamente archivos pre-generados** alojados localmente. Su responsabilidad se limita a ubicar el archivo solicitado por la Aplicación (ej. dataset\_100MB.parquet, dataset\_1kb.json) y leerlo del disco.  
+* **Simulación de Latencia (Processing Time):** Configurable mediante un parámetro processing\_delay. Antes de leer el archivo, el Conector "dormirá" (sleep) este tiempo para emular el costo computacional de generar una consulta SQL compleja en un escenario real.  
+* **Concurrencia Local:** El Conector debe implementarse usando hilos (threading) o asincronía (asyncio) para aceptar nuevas solicitudes del Enrutador *mientras* está ocupado leyendo o transmitiendo un DataSet previo.
 
-### 3. Compresión
+### **4.2. Emulación de Escenario Masivo (Load Testing)**
 
-| Algoritmo | Ratio | Velocidad | Recomendado |
-|-----------|-------|-----------|-------------|
-| **Zstd-1** | 3-4x | ⚡⚡⚡⚡ | ✅ PoC |
-| LZ4 | 2-3x | ⚡⚡⚡⚡⚡ | Alternativa |
+Para estresar el Enrutador y medir su comportamiento con múltiples Nodos y Aplicaciones:
 
-### 4. Rate Limiting
+* **Aplicaciones Virtuales:** Se utilizará un script orquestador (o herramientas como Locust modificado) que instancie múltiples procesos Aplicación CLI concurrentes.  
+* **Nodos Virtuales:** Se desplegarán múltiples instancias del Conector CLI (posiblemente en contenedores Docker o procesos ligeros) conectándose al mismo Enrutador para simular una flota de Nodos distribuidos.
 
-| Operación | Límite |
-|-----------|--------|
-| Queries pequeños | 200 sim. |
-| Archivos medianos | 50 sim. |
-| Archivos grandes | 10 sim. |
+## **5\. Protocolo Base de Comunicación**
 
-### 5. SSE Eficiente
+El sistema opera bajo un modelo síncrono de solicitud-respuesta orquestado por el Enrutador.
 
-| Parámetro | Valor |
-|-----------|-------|
-| Heartbeat | 30 seg |
-| Timeout | 5 min |
-| Workers | 4 |
+### **Flujo de la Transacción**
 
----
+1. **Canal Abierto:** El **Conector** inicia una conexión saliente hacia el **Enrutador** y mantiene el canal activo.  
+2. **Solicitud:** La **Aplicación** realiza una petición HTTP/API al **Enrutador** solicitando un DataSet específico de un Nodo.  
+3. **Validación y Enrutamiento:** El **Enrutador** valida la conexión del Nodo y reenvía la solicitud.  
+4. **Procesamiento Simulado:** El **Conector** recibe la orden, localiza el archivo solicitado en disco y espera el tiempo de processing\_delay configurado (simulando la generación).  
+5. **Transferencia:** El **Conector** lee el archivo y envía los datos al **Enrutador** según el patrón de diseño activo.  
+6. **Entrega Final:** El **Enrutador** entrega los datos a la **Aplicación**.
 
-## Transferencia de Archivos
+## **6\. Patrones de Diseño Iniciales (Candidatos)**
 
-### Flujo (Archivo Grande)
+Se evaluarán los siguientes tres patrones arquitectónicos:
 
-1. Gateway ejecuta query
-2. Gateway comprime con Zstd
-3. Gateway calcula checksum
-4. Gateway divide en chunks (512KB)
-5. Gateway envía chunks via POST
-6. Servidor almacena en MinIO
-7. Servidor genera URL
-8. Cliente descarga directo
+### **Patrón A: Proxy Directo (Buffering)**
 
-### Estructura Chunk
+* **Mecanismo:** Enrutador carga todo el DataSet en RAM antes de enviar.  
+* **Foco de Prueba:** Límite de memoria del Enrutador y simplicidad.
 
-```json
-{
-  "query_id": "uuid",
-  "chunk_index": 0,
-  "total_chunks": 50,
-  "checksum": "xxhash64",
-  "data": "binary"
-}
-```
+### **Patrón B: Streaming Proxy (Pasamanos)**
 
----
+* **Mecanismo:** Enrutador reenvía bytes (chunks) inmediatamente a la Aplicación.  
+* **Foco de Prueba:** Latencia (TTFB) y manejo de conexiones largas.
 
-## Garantías de Entrega
+### **Patrón C: Almacenamiento Intermedio (Offloading)**
 
-### At-Least-Once
+* **Mecanismo:** Conector sube datos a almacenamiento temporal (MinIO/Redis); Enrutador entrega enlace a la Aplicación.  
+* **Foco de Prueba:** Throughput en archivos grandes y liberación de recursos del Enrutador.
 
-**Servidor:**
-- Persistir comando antes de enviar
-- Timeout 30s, máximo 3 reintentos
+## **7\. Matriz de Evaluación**
 
-**Gateway:**
-- Reintentos con backoff exponencial
-- Máximo 10 reintentos por chunk
+Cada prueba debe registrar y reportar:
 
----
-
-## Roadmap
-
-### PoC (Actual)
-- [x] Conexión SSE básica
-- [x] Envío de comandos
-- [ ] Streaming de resultados
-- [ ] Compresión Zstd
-- [ ] Chunking
-- [ ] MinIO
-
-### Producción (Futuro)
-- [ ] Rate limiting
-- [ ] At-least-once delivery
-- [ ] Monitoreo
-- [ ] Horizontal scaling
-
----
-
-*Versión: 1.0 (PoC)*
+| Métrica | Definición | Objetivo |
+| :---- | :---- | :---- |
+| **TTFB (Time to First Byte)** | t\_primer\_byte\_aplicacion \- t0. | Evaluar latencia percibida. |
+| **Throughput Total** | Tamaño DataSet / (t4 \- t0). | Evaluar velocidad efectiva. |
+| **Overhead de Protocolo** | Tiempo añadido por el Enrutador (t\_total \- t\_transmision\_pura). | Identificar cuellos de botella en el Enrutador. |
+| **Recursos Servidor** | CPU/RAM del proceso Enrutador. | Dimensionamiento de infraestructura. |
+| **Estabilidad** | % de solicitudes exitosas bajo carga concurrente (N aplicaciones x M conectores). | Validar robustez. |
