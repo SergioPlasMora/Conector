@@ -10,12 +10,15 @@ import logging
 import time
 import threading
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 import sys
 import os
 import json
 import psutil
 import uuid
 from datetime import datetime, timezone
+from concurrent.futures import ThreadPoolExecutor
 from sseclient import SSEClient
 
 # Importar módulos del proyecto
@@ -157,7 +160,17 @@ class APIClient:
         self.config = config
         self.base_url = config.enrutador.base_url
         self.timeout = config.enrutador.api_timeout
+        
+        # Configurar session con connection pooling para alta concurrencia
         self.session = requests.Session()
+        adapter = HTTPAdapter(
+            pool_connections=100,  # Número de pools de conexión
+            pool_maxsize=100,      # Conexiones máximas por pool
+            max_retries=Retry(total=3, backoff_factor=0.1)
+        )
+        self.session.mount('http://', adapter)
+        self.session.mount('https://', adapter)
+        
         self.service_logger = ServiceLogger(config)
         self.logger = self.service_logger.logger
     
@@ -224,6 +237,9 @@ class APIClient:
                 "data": data,
                 "is_last": is_last
             }, timeout=self.timeout)
+
+            if response.status_code != 200:
+                self.logger.debug(f"Chunk {chunk_index} rechazado: {response.status_code} - {response.text}")
             return response.status_code == 200
         except requests.RequestException as e:
             self.logger.error(f"Error enviando chunk: {e}")
@@ -263,6 +279,10 @@ class ConectorService(win32serviceutil.ServiceFramework):
             # Cargar configuración
             self.config = get_config()
             
+            # ThreadPoolExecutor para limitar concurrencia de comandos
+            # Esto evita que 1000+ hilos simultáneos saturen el sistema
+            self.executor = ThreadPoolExecutor(max_workers=200)
+            
             # Inicializar componentes
             self.service_logger = ServiceLogger(self.config)
             self.logger = self.service_logger.logger
@@ -272,6 +292,7 @@ class ConectorService(win32serviceutil.ServiceFramework):
             self.logger.info("Servicio PoC inicializado correctamente")
             self.logger.info(f"Enrutador URL: {self.config.enrutador.base_url}")
             self.logger.info(f"DataSets path: {self.config.datasets.path}")
+            self.logger.info("ThreadPoolExecutor inicializado con max_workers=50")
             
         except Exception as e:
             with open(r"C:\Temp\Conector_poc_critical_error.log", "a") as f:
@@ -342,9 +363,14 @@ class ConectorService(win32serviceutil.ServiceFramework):
             # Timestamp t2: Conector recibe solicitud
             t2_received = time.time_ns() / 1e9
 
+            # Notificar recepción aquí (dentro del thread) para no bloquear SSE
+            if command_type != "get_dataset_stream": # Para streaming ya se hace en stream_init o es irrelevante
+                 pass # O pcionalmente notificar siempre
+
             if command_type == "get_dataset":
                 self._handle_get_dataset(command, t2_received)
             elif command_type == "get_dataset_stream":
+                self.api_client.notify_command_received(mac_address, command.get("command")) # Notificar recepción
                 self._handle_get_dataset_stream(command, t2_received)
             elif command_type == "get_dataset_offload":
                 self._handle_get_dataset_offload(command, t2_received)
@@ -354,6 +380,8 @@ class ConectorService(win32serviceutil.ServiceFramework):
         except Exception as e:
             self.logger.error(f"Excepción inesperada al ejecutar comando: {e}")
             self.logger.debug(f"Comando que causó la excepción: {command}")
+        finally:
+             self.logger.debug(f"Fin ejecución comando: {command_type} ID: {request_id}")
     
     def _handle_get_dataset(self, command: dict, t2_received: float):
         """Maneja el comando get_dataset para leer archivos estáticos."""
@@ -440,10 +468,12 @@ class ConectorService(win32serviceutil.ServiceFramework):
             # t3: Inicio de envío
             t3_start_send = time.time_ns() / 1e9
             
-            # 1. Inicializar stream (enviar t2 = cuando recibimos el comando)
+            # 1. Inicializar stream
+            self.logger.debug(f"[Patrón B] Iniciando stream_init para {request_id}")
             if not self.api_client.stream_init(request_id, mac_address, dataset_name, file_size, t2_received=t2_received):
                 self.logger.error(f"[Patrón B] Error iniciando stream")
                 return
+            self.logger.debug(f"[Patrón B] stream_init completado para {request_id}")
             
             # 2. Enviar archivo en chunks
             chunk_index = 0
@@ -452,6 +482,7 @@ class ConectorService(win32serviceutil.ServiceFramework):
             with open(file_path, 'rb') as f:
                 while True:
                     chunk_data = f.read(chunk_size)
+
                     if not chunk_data:
                         break
                     
@@ -465,9 +496,11 @@ class ConectorService(win32serviceutil.ServiceFramework):
                         f.seek(-1, 1)
                     
                     # Enviar chunk
+                    self.logger.debug(f"[Patrón B] Enviando chunk {chunk_index} ({len(chunk_data)} bytes)...")
                     if not self.api_client.stream_chunk(request_id, chunk_index, chunk_b64, is_last):
                         self.logger.error(f"[Patrón B] Error enviando chunk {chunk_index}")
                         break
+                    self.logger.debug(f"[Patrón B] Chunk {chunk_index} enviado OK")
                     
                     chunk_index += 1
                     total_bytes += len(chunk_data)
@@ -613,16 +646,8 @@ class ConectorService(win32serviceutil.ServiceFramework):
 
                     if command:
                         self.logger.info(f"Comando recibido vía SSE: {command.get('command', 'unknown')}")
-                        if self.api_client.notify_command_received(mac_address, command):
-                            self.logger.info("Comando notificado correctamente")
-                            # Ejecutar en hilo separado para no bloquear SSE
-                            threading.Thread(
-                                target=self.execute_command,
-                                args=(command,),
-                                daemon=True
-                            ).start()
-                        else:
-                            self.logger.warning("Error al notificar comando")
+                        # Ejecutar directamente en thread pool (la notificación se hará dentro)
+                        self.executor.submit(self.execute_command, command)
                     else:
                         # Heartbeat recibido
                         pass
@@ -733,6 +758,10 @@ def test_mode():
     api_client = APIClient(config)
     dataset_reader = DatasetReader(config.datasets.path)
     is_alive = True
+    
+    # ThreadPoolExecutor para limitar concurrencia (mismo que el servicio)
+    executor = ThreadPoolExecutor(max_workers=200)
+    logger.info("ThreadPoolExecutor inicializado con max_workers=200")
     
     # Mostrar DataSets disponibles
     datasets = dataset_reader.list_datasets()
@@ -960,11 +989,8 @@ def test_mode():
                     command = data.get("command")
                     if command:
                         logger.info(f"Comando recibido: {command.get('command', 'unknown')}")
-                        threading.Thread(
-                            target=execute_command_standalone,
-                            args=(command,),
-                            daemon=True
-                        ).start()
+                        # Usar executor para limitar concurrencia
+                        executor.submit(execute_command_standalone, command)
                 except json.JSONDecodeError as e:
                     logger.error(f"JSON inválido: {event.data} - {e}")
                 except Exception as e:
