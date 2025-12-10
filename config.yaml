@@ -23,7 +23,7 @@ datasets:
 
 # Simulación de latencia (para emular queries SQL complejas)
 simulation:
-  processing_delay_ms: 0
+  processing_delay_ms: 100
 
 # Streaming (Patrón B)
 streaming:
