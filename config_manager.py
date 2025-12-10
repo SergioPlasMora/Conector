@@ -243,3 +243,89 @@ def get_config() -> Config:
 
 # Alias para importación directa
 config = get_config()
+
+
+# ============================================
+# Configuración WebSocket (archivo separado)
+# ============================================
+
+@dataclass
+class WebSocketConfig:
+    """Configuración de WebSocket (desde config_ws.yaml)."""
+    enabled: bool = False
+    url: str = "ws://localhost:8000/ws/conector"
+    reconnect_delay: int = 5
+    max_reconnect_attempts: int = 10
+    ping_timeout: int = 20
+    connection_timeout: int = 30
+    max_message_size: int = 16777216  # 16MB
+
+
+class WSConfigManager:
+    """Gestor de configuración WebSocket."""
+    
+    _instance: Optional['WSConfigManager'] = None
+    _config: Optional[WebSocketConfig] = None
+    
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+        return cls._instance
+    
+    def __init__(self):
+        if self._config is None:
+            self._config = self._load_config()
+    
+    def _find_config_file(self) -> Optional[Path]:
+        """Busca el archivo config_ws.yaml."""
+        locations = [
+            Path("config_ws.yaml"),
+            Path(__file__).parent / "config_ws.yaml",
+            Path(os.environ.get("CONECTOR_WS_CONFIG", "config_ws.yaml")),
+        ]
+        
+        for loc in locations:
+            if loc.exists():
+                return loc
+        
+        return None
+    
+    def _load_config(self) -> WebSocketConfig:
+        """Carga la configuración WebSocket desde archivo."""
+        config_file = self._find_config_file()
+        
+        if config_file is None:
+            # WebSocket deshabilitado si no hay archivo
+            return WebSocketConfig(enabled=False)
+        
+        try:
+            with open(config_file, 'r', encoding='utf-8') as f:
+                data = yaml.safe_load(f) or {}
+            
+            ws_data = data.get('websocket', {})
+            return WebSocketConfig(
+                enabled=bool(ws_data.get('enabled', False)),
+                url=ws_data.get('url', WebSocketConfig.url),
+                reconnect_delay=int(ws_data.get('reconnect_delay', WebSocketConfig.reconnect_delay)),
+                max_reconnect_attempts=int(ws_data.get('max_reconnect_attempts', WebSocketConfig.max_reconnect_attempts)),
+                ping_timeout=int(ws_data.get('ping_timeout', WebSocketConfig.ping_timeout)),
+                connection_timeout=int(ws_data.get('connection_timeout', WebSocketConfig.connection_timeout)),
+                max_message_size=int(ws_data.get('max_message_size', WebSocketConfig.max_message_size))
+            )
+        except Exception as e:
+            print(f"Error cargando config_ws.yaml: {e}. WebSocket deshabilitado.")
+            return WebSocketConfig(enabled=False)
+    
+    @property
+    def config(self) -> WebSocketConfig:
+        """Retorna la configuración WebSocket."""
+        return self._config
+
+
+def get_ws_config() -> WebSocketConfig:
+    """Obtiene la configuración WebSocket del Conector."""
+    return WSConfigManager().config
+
+
+# Alias para importación directa
+ws_config = get_ws_config()

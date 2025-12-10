@@ -19,8 +19,9 @@ from datetime import datetime, timezone
 from sseclient import SSEClient
 
 # Importar módulos del proyecto
-from config_manager import get_config, Config
+from config_manager import get_config, Config, get_ws_config, WebSocketConfig
 from dataset_reader import DatasetReader, DatasetResult
+from transport import TransportClient, SSETransportClient, WSTransportClient
 
 
 class JSONFormatter(logging.Formatter):
@@ -980,11 +981,64 @@ def test_mode():
             logger.error(f"Error inesperado en SSE: {e}")
             return False
     
+    # =========================================================================
+    # NUEVA FUNCIONALIDAD: Selección de transporte (SSE o WebSocket)
+    # =========================================================================
+    ws_config = get_ws_config()
+    
+    def create_transport() -> TransportClient:
+        """Factory para crear el cliente de transporte apropiado."""
+        if ws_config.enabled:
+            logger.info("Usando transporte WebSocket")
+            return WSTransportClient(ws_config, logger)
+        else:
+            logger.info("Usando transporte SSE")
+            return SSETransportClient(config, logger)
+    
+    def handle_transport_connection(transport: TransportClient, mac_address: str) -> bool:
+        """Maneja la conexión usando el transporte seleccionado."""
+        nonlocal is_alive
+        
+        if not transport.connect(mac_address):
+            return False
+        
+        # Notificar que el host está activo
+        if api_client.notify_host_active(mac_address):
+            logger.info("Host marcado como ACTIVE")
+        else:
+            logger.warning("No se pudo marcar host como ACTIVE")
+        
+        try:
+            while is_alive and transport.is_connected:
+                command = transport.receive_command()
+                
+                if command is None:
+                    if not transport.is_connected:
+                        logger.warning("Conexión perdida")
+                        return False
+                    continue
+                
+                logger.info(f"Comando recibido: {command.get('command', 'unknown')}")
+                threading.Thread(
+                    target=execute_command_standalone,
+                    args=(command,),
+                    daemon=True
+                ).start()
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error en conexión de transporte: {e}")
+            return False
+        finally:
+            transport.disconnect()
+    
     try:
         mac = NetworkUtils.get_mac_address()
         normalized_mac = NetworkUtils.normalize_mac_address(mac)
         logger.info(f"MAC address: {normalized_mac}")
         logger.info(f"Enrutador URL: {config.enrutador.base_url}")
+        logger.info(f"WebSocket habilitado: {ws_config.enabled}")
         
         # Ping inicial
         try:
@@ -1000,13 +1054,14 @@ def test_mode():
         # Heartbeat en background
         threading.Thread(target=send_heartbeat_standalone, daemon=True).start()
         
-        # Conexión SSE
-        sse_url = f"{config.enrutador.base_url}/sse/conector/{normalized_mac}"
+        # Conexión con transporte seleccionado (SSE o WebSocket)
         retry_count = 0
         
         while is_alive:
-            logger.info(f"Intento de conexión SSE #{retry_count + 1}")
-            success = handle_sse_connection_standalone(sse_url, normalized_mac)
+            transport = create_transport()
+            logger.info(f"Intento de conexión #{retry_count + 1} ({transport.transport_type.upper()})")
+            
+            success = handle_transport_connection(transport, normalized_mac)
             
             if not success and is_alive:
                 retry_count += 1

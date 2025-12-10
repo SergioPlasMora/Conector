@@ -24,3 +24,6 @@ csvkit>=1.12.0
 
 # MinIO Storage (Pattern C)
 minio>=7.2.0
+
+# WebSocket Client (Transport Layer)
+websocket-client>=1.6.0
