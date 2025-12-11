@@ -158,6 +158,19 @@ class APIClient:
         self.base_url = config.enrutador.base_url
         self.timeout = config.enrutador.api_timeout
         self.session = requests.Session()
+        
+        # Aumentar el pool de conexiones para soportar alta concurrencia
+        # pool_connections: número de pools de conexión por host
+        # pool_maxsize: máximo de conexiones por pool
+        # max_retries: reintentos automáticos en errores de conexión
+        adapter = requests.adapters.HTTPAdapter(
+            pool_connections=100,
+            pool_maxsize=100,
+            max_retries=3
+        )
+        self.session.mount('http://', adapter)
+        self.session.mount('https://', adapter)
+        
         self.service_logger = ServiceLogger(config)
         self.logger = self.service_logger.logger
     
@@ -185,14 +198,45 @@ class APIClient:
             return False
     
     def send_dataset_result(self, result_payload: dict) -> bool:
-        """Envía el resultado de un DataSet al Enrutador."""
+        """
+        Envía el resultado de un DataSet al Enrutador.
+        
+        Incluye reintentos con delay para manejar race conditions donde
+        el resultado llega antes de que el request esté registrado.
+        """
+        import time
+        
         url = f"{self.base_url}/datasets/result"
-        try:
-            response = self.session.post(url, json=result_payload, timeout=self.timeout)
-            return response.status_code == 200
-        except requests.RequestException as e:
-            self.logger.error(f"Error enviando resultado: {e}")
-            return False
+        request_id = result_payload.get("request_id", "unknown")
+        max_retries = 5
+        delay_ms = 100
+        
+        for attempt in range(max_retries):
+            try:
+                response = self.session.post(url, json=result_payload, timeout=self.timeout)
+                
+                if response.status_code == 200:
+                    return True
+                
+                # Si 404, el request aún no está registrado - reintentar
+                if response.status_code == 404 and attempt < max_retries - 1:
+                    time.sleep(delay_ms / 1000)
+                    continue
+                
+                self.logger.error(
+                    f"Error HTTP {response.status_code} enviando resultado para request_id={request_id}"
+                )
+                return False
+                
+            except requests.RequestException as e:
+                if attempt < max_retries - 1:
+                    time.sleep(delay_ms / 1000)
+                    continue
+                self.logger.error(f"Error enviando resultado para request_id={request_id}: {e}")
+                return False
+        
+        self.logger.error(f"Error enviando resultado para request_id={request_id}")
+        return False
     
     # =========================================================================
     # Patrón B: Streaming
@@ -211,7 +255,7 @@ class APIClient:
             }, timeout=self.timeout)
             return response.status_code == 200
         except requests.RequestException as e:
-            self.logger.error(f"Error iniciando stream: {e}")
+            self.logger.error(f"Error iniciando stream para request_id={request_id}: {e}")
             return False
     
     def stream_chunk(self, request_id: str, chunk_index: int, data: str, is_last: bool = False) -> bool:
@@ -226,7 +270,7 @@ class APIClient:
             }, timeout=self.timeout)
             return response.status_code == 200
         except requests.RequestException as e:
-            self.logger.error(f"Error enviando chunk: {e}")
+            self.logger.error(f"Error enviando chunk {chunk_index} para request_id={request_id}: {e}")
             return False
     
     def stream_complete(self, request_id: str, total_chunks: int, total_bytes: int, status: str = "success", t3_start_send: float = None) -> bool:
@@ -242,7 +286,7 @@ class APIClient:
             }, timeout=self.timeout)
             return response.status_code == 200
         except requests.RequestException as e:
-            self.logger.error(f"Error completando stream: {e}")
+            self.logger.error(f"Error completando stream para request_id={request_id}: {e}")
             return False
 
 
@@ -798,7 +842,7 @@ def test_mode():
             if api_client.send_dataset_result(result_payload):
                 logger.info(f"Resultado enviado: {result.size_bytes} bytes, success={result.success}")
             else:
-                logger.error("Error enviando resultado")
+                logger.error(f"Error enviando resultado para request_id={request_id}")
         
         elif command_type == "get_dataset_stream":
             # Patrón B: Streaming
@@ -848,7 +892,7 @@ def test_mode():
                             f.seek(-1, 1)
                         
                         if not api_client.stream_chunk(request_id, chunk_index, chunk_b64, is_last):
-                            logger.error(f"[Patrón B] Error enviando chunk {chunk_index}")
+                            logger.error(f"[Patrón B] Error enviando chunk {chunk_index} para request_id={request_id}")
                             break
                         
                         chunk_index += 1
@@ -920,7 +964,7 @@ def test_mode():
                 if api_client.send_dataset_result(result_payload):
                     logger.info(f"[Patrón C] URL enviada: {result.size_bytes} bytes")
                 else:
-                    logger.error("[Patrón C] Error enviando resultado")
+                    logger.error(f"[Patrón C] Error enviando resultado para request_id={request_id}")
                     
             except Exception as e:
                 logger.error(f"[Patrón C] Error: {e}")
