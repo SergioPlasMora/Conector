@@ -1,0 +1,110 @@
+(venv) PS C:\Users\Usuario\Documents\GitHub\Conector> python service.py --test
+=== MODO PRUEBA ===
+2025-12-10 17:12:39 | INFO     | [BOOT] Iniciando en modo prueba
+2025-12-10 17:12:39 | INFO     | DataSets disponibles: ['dataset_100mb.csv', 'dataset_10mb.csv', 'dataset_1kb.json', 'dataset_20mb.csv', 'dataset_30mb.csv', 'dataset_40mb.csv', 'dataset_50mb.csv']
+2025-12-10 17:12:39 | INFO     | MAC address: cc-28-aa-cd-5c-74
+2025-12-10 17:12:39 | INFO     | Enrutador URL: http://localhost:8000
+2025-12-10 17:12:39 | INFO     | WebSocket habilitado: False
+2025-12-10 17:12:39 | INFO     | Ping inicial enviado con éxito
+2025-12-10 17:12:39 | INFO     | Usando transporte SSE
+2025-12-10 17:12:39 | INFO     | Intento de conexión #1 (SSE)
+2025-12-10 17:12:39 | INFO     | Conectando a SSE: http://localhost:8000/sse/conector/cc-28-aa-cd-5c-74
+2025-12-10 17:12:39 | INFO     | Conexión SSE establecida correctamente
+2025-12-10 17:12:39 | INFO     | Host marcado como ACTIVE
+2025-12-10 17:12:48 | INFO     | Comando recibido vía SSE: get_dataset
+2025-12-10 17:12:48 | INFO     | Comando recibido: get_dataset
+2025-12-10 17:12:48 | INFO     | Comando recibido: get_dataset
+2025-12-10 17:12:48 | INFO     | Comando recibido vía SSE: get_dataset
+2025-12-10 17:12:48 | INFO     | Comando recibido: get_dataset
+2025-12-10 17:12:48 | INFO     | Comando recibido: get_dataset
+2025-12-10 17:12:48 | INFO     | Comando recibido vía SSE: get_dataset
+2025-12-10 17:12:48 | INFO     | Comando recibido: get_dataset
+2025-12-10 17:12:48 | INFO     | Comando recibido: get_dataset
+2025-12-10 17:12:48 | INFO     | Comando recibido vía SSE: get_dataset
+2025-12-10 17:12:48 | INFO     | Comando recibido: get_dataset
+2025-12-10 17:12:48 | INFO     | Resultado enviado: 334 bytes, success=True
+2025-12-10 17:12:48 | INFO     | Comando recibido: get_dataset
+2025-12-10 17:12:48 | INFO     | Comando recibido vía SSE: get_dataset
+2025-12-10 17:12:48 | INFO     | Comando recibido: get_dataset
+2025-12-10 17:12:48 | INFO     | Comando recibido: get_dataset
+2025-12-10 17:12:48 | INFO     | Resultado enviado: 334 bytes, success=True
+2025-12-10 17:12:48 | INFO     | Comando recibido vía SSE: get_dataset
+2025-12-10 17:12:48 | INFO     | Comando recibido: get_dataset
+2025-12-10 17:12:48 | INFO     | Comando recibido: get_dataset
+2025-12-10 17:12:48 | INFO     | Resultado enviado: 334 bytes, success=True
+2025-12-10 17:12:48 | INFO     | Comando recibido vía SSE: get_dataset
+2025-12-10 17:12:48 | INFO     | Comando recibido: get_dataset
+2025-12-10 17:12:48 | INFO     | Comando recibido: get_dataset
+2025-12-10 17:12:48 | INFO     | Resultado enviado: 334 bytes, success=True
+2025-12-10 17:12:48 | INFO     | Resultado enviado: 334 bytes, success=True
+2025-12-10 17:12:48 | INFO     | Comando recibido vía SSE: get_dataset
+2025-12-10 17:12:48 | INFO     | Comando recibido: get_dataset
+2025-12-10 17:12:48 | INFO     | Comando recibido: get_dataset
+2025-12-10 17:12:48 | INFO     | Comando recibido vía SSE: get_dataset
+2025-12-10 17:12:48 | INFO     | Comando recibido: get_dataset
+2025-12-10 17:12:48 | INFO     | Resultado enviado: 334 bytes, success=True
+2025-12-10 17:12:48 | INFO     | Comando recibido: get_dataset
+2025-12-10 17:12:48 | INFO     | Comando recibido vía SSE: get_dataset
+2025-12-10 17:12:48 | INFO     | Comando recibido: get_dataset
+2025-12-10 17:12:48 | INFO     | Comando recibido: get_dataset
+2025-12-10 17:12:48 | INFO     | Comando recibido vía SSE: get_dataset
+2025-12-10 17:12:48 | INFO     | Comando recibido: get_dataset
+2025-12-10 17:12:48 | INFO     | Comando recibido: get_dataset
+2025-12-10 17:12:48 | INFO     | Comando recibido vía SSE: get_dataset
+2025-12-10 17:12:48 | INFO     | Comando recibido: get_dataset
+2025-12-10 17:12:48 | INFO     | Comando recibido: get_dataset
+2025-12-10 17:12:48 | INFO     | Resultado enviado: 334 bytes, success=True
+2025-12-10 17:12:48 | INFO     | Resultado enviado: 334 bytes, success=True
+2025-12-10 17:12:48 | INFO     | Comando recibido vía SSE: get_dataset
+2025-12-10 17:12:48 | INFO     | Comando recibido: get_dataset
+2025-12-10 17:12:48 | INFO     | Comando recibido: get_dataset
+2025-12-10 17:12:48 | INFO     | Comando recibido vía SSE: get_dataset
+2025-12-10 17:12:48 | INFO     | Comando recibido: get_dataset
+2025-12-10 17:12:48 | INFO     | Comando recibido: get_dataset
+2025-12-10 17:12:48 | INFO     | Comando recibido vía SSE: get_dataset
+2025-12-10 17:12:48 | INFO     | Comando recibido: get_dataset
+2025-12-10 17:12:48 | INFO     | Comando recibido: get_dataset
+2025-12-10 17:12:48 | INFO     | Resultado enviado: 334 bytes, success=True
+2025-12-10 17:12:48 | INFO     | Resultado enviado: 334 bytes, success=True
+2025-12-10 17:12:48 | INFO     | Resultado enviado: 334 bytes, success=True
+2025-12-10 17:12:48 | INFO     | Resultado enviado: 334 bytes, success=True
+2025-12-10 17:12:48 | INFO     | Comando recibido vía SSE: get_dataset
+2025-12-10 17:12:48 | INFO     | Comando recibido: get_dataset
+2025-12-10 17:12:48 | INFO     | Comando recibido: get_dataset
+2025-12-10 17:12:48 | INFO     | Comando recibido vía SSE: get_dataset
+2025-12-10 17:12:48 | INFO     | Comando recibido: get_dataset
+2025-12-10 17:12:48 | INFO     | Comando recibido: get_dataset
+2025-12-10 17:12:48 | INFO     | Resultado enviado: 334 bytes, success=True
+2025-12-10 17:12:48 | INFO     | Comando recibido vía SSE: get_dataset
+2025-12-10 17:12:48 | INFO     | Comando recibido: get_dataset
+2025-12-10 17:12:48 | INFO     | Comando recibido: get_dataset
+2025-12-10 17:12:48 | INFO     | Resultado enviado: 334 bytes, success=True
+2025-12-10 17:12:48 | INFO     | Comando recibido vía SSE: get_dataset
+2025-12-10 17:12:48 | INFO     | Resultado enviado: 334 bytes, success=True
+2025-12-10 17:12:48 | INFO     | Comando recibido: get_dataset
+2025-12-10 17:12:48 | INFO     | Comando recibido: get_dataset
+2025-12-10 17:12:48 | INFO     | Comando recibido vía SSE: get_dataset
+2025-12-10 17:12:48 | INFO     | Comando recibido: get_dataset
+2025-12-10 17:12:48 | INFO     | Comando recibido: get_dataset
+2025-12-10 17:12:48 | INFO     | Comando recibido vía SSE: get_dataset
+2025-12-10 17:12:48 | INFO     | Comando recibido: get_dataset
+2025-12-10 17:12:48 | INFO     | Comando recibido: get_dataset
+2025-12-10 17:12:48 | INFO     | Resultado enviado: 334 bytes, success=True
+2025-12-10 17:12:48 | INFO     | Resultado enviado: 334 bytes, success=True
+2025-12-10 17:12:48 | INFO     | Comando recibido vía SSE: get_dataset
+2025-12-10 17:12:48 | INFO     | Resultado enviado: 334 bytes, success=True
+2025-12-10 17:12:48 | INFO     | Comando recibido: get_dataset
+2025-12-10 17:12:48 | INFO     | Resultado enviado: 334 bytes, success=True
+2025-12-10 17:12:48 | INFO     | Comando recibido: get_dataset
+2025-12-10 17:12:48 | INFO     | Comando recibido vía SSE: get_dataset
+2025-12-10 17:12:48 | INFO     | Comando recibido: get_dataset
+2025-12-10 17:12:48 | INFO     | Comando recibido: get_dataset
+2025-12-10 17:12:48 | INFO     | Comando recibido vía SSE: get_dataset
+2025-12-10 17:12:48 | INFO     | Comando recibido: get_dataset
+2025-12-10 17:12:48 | INFO     | Resultado enviado: 334 bytes, success=True
+2025-12-10 17:12:48 | INFO     | Resultado enviado: 334 bytes, success=True
+2025-12-10 17:12:48 | INFO     | Comando recibido: get_dataset
+2025-12-10 17:12:48 | INFO     | Resultado enviado: 334 bytes, success=True
+2025-12-10 17:12:48 | INFO     | Resultado enviado: 334 bytes, success=True
+2025-12-10 17:12:48 | INFO     | Resultado enviado: 334 bytes, success=True
+

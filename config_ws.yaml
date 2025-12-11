@@ -3,18 +3,18 @@
 
 websocket:
   # Set to true to use WebSocket, false to use SSE
-  enabled: true
-  
+  enabled: false
+
   # WebSocket URL (will append /{mac_address})
   url: "ws://localhost:8000/ws/conector"
-  
+
   # Reconnection settings
-  reconnect_delay: 5           # seconds between reconnection attempts
-  max_reconnect_attempts: 10   # max attempts before giving up
-  
+  reconnect_delay: 5 # seconds between reconnection attempts
+  max_reconnect_attempts: 10 # max attempts before giving up
+
   # Timeouts
-  ping_timeout: 20             # seconds
-  connection_timeout: 30       # seconds
-  
+  ping_timeout: 20 # seconds
+  connection_timeout: 30 # seconds
+
   # Message limits
-  max_message_size: 16777216   # 16MB
+  max_message_size: 16777216 # 16MB

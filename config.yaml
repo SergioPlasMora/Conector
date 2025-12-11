@@ -5,7 +5,7 @@
 enrutador:
   base_url: "http://localhost:8000"
   sse_timeout: 30
-  api_timeout: 5
+  api_timeout: 2
 
 # Heartbeat/Ping
 heartbeat:
@@ -23,7 +23,7 @@ datasets:
 
 # Simulación de latencia (para emular queries SQL complejas)
 simulation:
-  processing_delay_ms: 0
+  processing_delay_ms: 100
 
 # Streaming (Patrón B)
 streaming:
@@ -31,9 +31,9 @@ streaming:
 
 # Logging
 logging:
-  level: "INFO"
-  format: "json" # "json" o "text"
-  file_path: "C:\\Temp\\Conector_poc.log"
+  level: "DEBUG"
+  format: "text" # "json" o "text"
+  file_path: "conector.log"
 
 # Trazabilidad
 tracing:
