@@ -38,3 +38,4 @@ htmlcov/
 
 # Datasets locales (si son muy grandes)
 # datasets/
+*.pyc

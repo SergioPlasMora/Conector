@@ -293,6 +293,26 @@ class APIClient:
         except requests.RequestException as e:
             self.logger.error(f"Error completando stream para request_id={request_id}: {e}")
             return False
+    
+    def stream_chunk_binary(self, request_id: str, chunk_index: int, data: bytes) -> bool:
+        """
+        Envía un chunk binario directo al Enrutador (sin Base64).
+        Esto elimina el overhead de codificación/decodificación Base64.
+        """
+        url = f"{self.base_url}/datasets/stream/chunk-binary/{request_id}/{chunk_index}"
+        try:
+            response = self.session.post(
+                url, 
+                data=data,  # bytes directos
+                headers={"Content-Type": "application/octet-stream"},
+                timeout=self.timeout
+            )
+            if response.status_code != 200:
+                self.logger.debug(f"Chunk binario {chunk_index} rechazado: {response.status_code}")
+            return response.status_code == 200
+        except requests.RequestException as e:
+            self.logger.error(f"Error enviando chunk binario {chunk_index}: {e}")
+            return False
 
 
 class ConectorService(win32serviceutil.ServiceFramework):
@@ -471,9 +491,8 @@ class ConectorService(win32serviceutil.ServiceFramework):
     def _handle_get_dataset_stream(self, command: dict, t2_received: float):
         """
         Patrón B: Maneja el comando get_dataset_stream para envío chunked.
-        Envía el DataSet en múltiples chunks en lugar de un solo payload.
+        Envía el DataSet en múltiples chunks binarios (sin Base64).
         """
-        import base64
         from pathlib import Path
         
         request_id = command.get("request_id")
@@ -482,7 +501,7 @@ class ConectorService(win32serviceutil.ServiceFramework):
         # Usar configuración de chunk_size (KB -> bytes)
         chunk_size = self.config.streaming.chunk_size_kb * 1024
         
-        self.logger.info(f"[Patrón B] Streaming DataSet: {dataset_name} (chunk_size: {chunk_size // 1024}KB)", extra={
+        self.logger.info(f"[Patrón B] Streaming DataSet (BINARY): {dataset_name} (chunk_size: {chunk_size // 1024}KB)", extra={
             "request_id": request_id
         })
         
@@ -508,7 +527,7 @@ class ConectorService(win32serviceutil.ServiceFramework):
                 return
             self.logger.debug(f"[Patrón B] stream_init completado para {request_id}")
             
-            # 2. Enviar archivo en chunks
+            # 2. Enviar archivo en chunks BINARIOS (sin Base64)
             chunk_index = 0
             total_bytes = 0
             
@@ -519,21 +538,12 @@ class ConectorService(win32serviceutil.ServiceFramework):
                     if not chunk_data:
                         break
                     
-                    # Codificar en base64 para transmisión JSON
-                    chunk_b64 = base64.b64encode(chunk_data).decode('ascii')
-                    
-                    # Verificar si es el último chunk
-                    next_byte = f.read(1)
-                    is_last = len(next_byte) == 0
-                    if next_byte:
-                        f.seek(-1, 1)
-                    
-                    # Enviar chunk
-                    self.logger.debug(f"[Patrón B] Enviando chunk {chunk_index} ({len(chunk_data)} bytes)...")
-                    if not self.api_client.stream_chunk(request_id, chunk_index, chunk_b64, is_last):
-                        self.logger.error(f"[Patrón B] Error enviando chunk {chunk_index}")
+                    # Enviar chunk binario directo (SIN Base64)
+                    self.logger.debug(f"[Patrón B] Enviando chunk binario {chunk_index} ({len(chunk_data)} bytes)...")
+                    if not self.api_client.stream_chunk_binary(request_id, chunk_index, chunk_data):
+                        self.logger.error(f"[Patrón B] Error enviando chunk binario {chunk_index}")
                         break
-                    self.logger.debug(f"[Patrón B] Chunk {chunk_index} enviado OK")
+                    self.logger.debug(f"[Patrón B] Chunk binario {chunk_index} enviado OK")
                     
                     chunk_index += 1
                     total_bytes += len(chunk_data)
@@ -542,7 +552,7 @@ class ConectorService(win32serviceutil.ServiceFramework):
             self.api_client.stream_complete(request_id, chunk_index, total_bytes, status="success", t3_start_send=t3_start_send)
             
             self.logger.info(
-                f"[Patrón B] Stream completado: {chunk_index} chunks, {total_bytes} bytes",
+                f"[Patrón B] Stream BINARY completado: {chunk_index} chunks, {total_bytes} bytes",
                 extra={"request_id": request_id}
             )
             
@@ -863,8 +873,7 @@ def test_mode():
                 logger.error(f"Error enviando resultado para request_id={request_id}")
         
         elif command_type == "get_dataset_stream":
-            # Patrón B: Streaming
-            import base64
+            # Patrón B: Streaming BINARIO (sin Base64)
             from pathlib import Path
             
             dataset_name = command.get("dataset_name")
@@ -872,7 +881,7 @@ def test_mode():
             # Usar configuración de chunk_size (KB -> bytes)
             chunk_size = config.streaming.chunk_size_kb * 1024
             
-            logger.info(f"[Patrón B] Streaming DataSet: {dataset_name} (chunk_size: {chunk_size // 1024}KB)")
+            logger.info(f"[Patrón B] Streaming DataSet (BINARY): {dataset_name} (chunk_size: {chunk_size // 1024}KB)")
             
             file_path = Path(config.datasets.path) / dataset_name
             
@@ -892,7 +901,7 @@ def test_mode():
                     logger.error("[Patrón B] Error iniciando stream")
                     return
                 
-                # 2. Enviar archivo en chunks
+                # 2. Enviar archivo en chunks BINARIOS (sin Base64)
                 chunk_index = 0
                 total_bytes = 0
                 
@@ -902,15 +911,9 @@ def test_mode():
                         if not chunk_data:
                             break
                         
-                        chunk_b64 = base64.b64encode(chunk_data).decode('ascii')
-                        
-                        next_byte = f.read(1)
-                        is_last = len(next_byte) == 0
-                        if next_byte:
-                            f.seek(-1, 1)
-                        
-                        if not api_client.stream_chunk(request_id, chunk_index, chunk_b64, is_last):
-                            logger.error(f"[Patrón B] Error enviando chunk {chunk_index} para request_id={request_id}")
+                        # Enviar chunk binario directo (SIN Base64)
+                        if not api_client.stream_chunk_binary(request_id, chunk_index, chunk_data):
+                            logger.error(f"[Patrón B] Error enviando chunk binario {chunk_index}")
                             break
                         
                         chunk_index += 1
@@ -918,7 +921,7 @@ def test_mode():
                 
                 # 3. Señalar finalización (enviar t3)
                 api_client.stream_complete(request_id, chunk_index, total_bytes, status="success", t3_start_send=t3_start_send)
-                logger.info(f"[Patrón B] Stream completado: {chunk_index} chunks, {total_bytes} bytes")
+                logger.info(f"[Patrón B] Stream BINARY completado: {chunk_index} chunks, {total_bytes} bytes")
                 
             except Exception as e:
                 logger.error(f"[Patrón B] Error en streaming: {e}")
