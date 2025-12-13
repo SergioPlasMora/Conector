@@ -5,7 +5,7 @@
 enrutador:
   base_url: "http://localhost:8000"
   sse_timeout: 30
-  api_timeout: 2
+  api_timeout: 30
 
 # Heartbeat/Ping
 heartbeat:
