@@ -39,3 +39,4 @@ htmlcov/
 # Datasets locales (si son muy grandes)
 # datasets/
 *.pyc
+__pycache__/config_manager.cpython-314.pyc
